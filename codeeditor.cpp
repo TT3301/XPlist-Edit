@@ -83,7 +83,7 @@ int CodeEditor::lineNumberAreaWidth() {
   }
 
   // int space = 3 + fontMetrics().horizontalAdvance(QLatin1Char('9')) * digits;
-  int space = 3 + fontMetrics().width(QLatin1Char('9')) * digits;  // Qt5.9.9
+  int space = 3 + fontMetrics().horizontalAdvance(QLatin1Char('9')) * digits;  // Qt5.9.9
 
   return space;
 }

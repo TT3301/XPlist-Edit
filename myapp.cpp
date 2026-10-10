@@ -10,8 +10,12 @@ bool MyApplication::event(QEvent* event)
         QFileOpenEvent* openEvent = static_cast<QFileOpenEvent*>(event);
         fileName = openEvent->file();
 
-        if (mw_one->isActiveWindow()) {
+        if (mw_one) {
             mw_one->openPlist(fileName);
+            mw_one->show();
+            mw_one->raise();
+            mw_one->activateWindow();
+            fileName.clear();
         }
     }
 

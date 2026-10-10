@@ -14,15 +14,15 @@ int main(int argc, char* argv[]) {
     qputenv("QT_ENABLE_HIGHDPI_SCALING", "1");
     QGuiApplication::setHighDpiScaleFactorRoundingPolicy(
         Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
     QGuiApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
+#endif
   }
 #endif
 
   // QApplication a(argc, argv);
   MyApplication* a = new MyApplication(argc, argv);
-#ifdef Q_OS_MAC
-  MainWindow::init_MacVerInfo(CurVersion);
-#endif
+  QCoreApplication::setApplicationVersion(CurVersion);
 
   static QTranslator translator;  //注意：使translator一直生效
   static QTranslator translator0;
@@ -53,11 +53,12 @@ int main(int argc, char* argv[]) {
     }
   }
 
+  if (argc > 1) fileName = QString::fromLocal8Bit(argv[1]);
   QFont f;
 
 #ifdef Q_OS_WIN32
 
-  fileName = QString::fromLocal8Bit(argv[1]);  //解决乱码
+  // File arguments have already been checked for argc.
 
   f.setFamily("Microsoft YaHei UI");
 

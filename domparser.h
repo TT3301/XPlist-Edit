@@ -19,7 +19,7 @@ class DomParser {
 
  private:
   static void parseElement(QDomElement &n, DomItem *item);
-  static void parseItem(DomItem *item, QDomElement &n, QDomDocument &doc);
+  static void parseItem(DomItem *item, QDomElement &n, QDomDocument &doc, bool isRoot = false);
 };
 
 #endif  // DOMPARSER_H

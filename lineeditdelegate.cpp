@@ -1,3 +1,5 @@
+#include <QRegularExpression>
+#include <QRegularExpressionValidator>
 #include "lineeditdelegate.h"
 
 #include <QCompleter>
@@ -57,8 +59,8 @@ void LineEditDelegate::setEditorData(QWidget* editor,
   if (item->getType() == "string") setTextCompleter(lineEdit);
 
   if (item->getType() == "data" && index.column() == 2) {
-    QRegExp regx("[A-Fa-f0-9- ]{2,1024}");
-    QValidator* validator = new QRegExpValidator(regx, lineEdit);
+    QRegularExpression regx("[A-Fa-f0-9- ]{2,1024}");
+    QValidator* validator = new QRegularExpressionValidator(regx, lineEdit);
     lineEdit->setValidator(validator);
     lineEdit->setPlaceholderText(tr("Hexadecimal"));
   }

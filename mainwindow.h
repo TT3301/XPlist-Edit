@@ -180,7 +180,6 @@ class MainWindow : public QMainWindow {
   void clearTreeIndexWidget();
   void setTitle(QString title);
   void setModifyMarker();
-  static void init_MacVerInfo(QString ver);
   static QString loadText(QString textFile);
  public slots:
   void on_Find();
@@ -202,8 +201,8 @@ class MainWindow : public QMainWindow {
   void actionClose_activated();
   void actionClose_all_activated();
 
-  void actionSave();
-  void actionSaveAs();
+  bool actionSave();
+  bool actionSaveAs();
 
   void actionExpand_all_activated();
 
@@ -360,7 +359,7 @@ class MainWindow : public QMainWindow {
 
   void openFiles(QStringList list = QStringList());
 
-  void savePlist(QString filePath);
+  bool savePlist(QString filePath);
 
   enum { MaxRecentFiles = 10 };
 

@@ -29,7 +29,7 @@ class AutoUpdateDialog : public QDialog {
   QString tempDir;
   QString filename;
   QNetworkAccessManager* manager;
-  QNetworkReply* reply;
+  QNetworkReply* reply = nullptr;
   QFile* myfile;
   void Init();
   void doProcessReadyRead();

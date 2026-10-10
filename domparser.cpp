@@ -1,7 +1,7 @@
 
 #include "domparser.h"
 
-#include <QRegExp>
+#include <QRegularExpression>
 
 #include "mainwindow.h"
 extern MainWindow* mw_one;
@@ -32,7 +32,7 @@ DomModel* DomParser::fromDom(QDomDocument d) {
   // create root item in model
   DomItem* item = m->getRoot()->addChild();
   item->setName("plist");
-  item->setType(strRootType);
+  item->setType(dict.tagName());
 
   // parse doc recursively
   parseElement(dict, item);
@@ -72,7 +72,7 @@ QDomDocument DomParser::toDom(DomModel* m) {
   DomItem* model_root = m->getRoot()->child(0);
 
   // parse model recursively
-  parseItem(model_root, doc_dict, doc);
+  parseItem(model_root, doc_dict, doc, true);
 
   return doc;
 }
@@ -88,7 +88,8 @@ void DomParser::parseElement(QDomElement& n, DomItem* item) {
 
       if (tagName == "key" || tagName == "array" || tagName == "dict" ||
           tagName == "string" || tagName == "integer" || tagName == "real" ||
-          tagName == "data" || tagName == "date" || tagName == "bool") {
+          tagName == "data" || tagName == "date" || tagName == "bool" ||
+          tagName == "true" || tagName == "false") {
         // create child
         DomItem* domItem = item->addChild();
 
@@ -167,6 +168,10 @@ void DomParser::parseElement(QDomElement& n, DomItem* item) {
             eValue = ByteToHexStr(bytes);
           }
 
+          if (eType == "true" || eType == "false") {
+            eValue = eType;
+            eType = "bool";
+          }
           domItem->setData(eName, eType, eValue);
 
           domItem->setName(QString("Item %1").arg(nC++));
@@ -184,93 +189,29 @@ void DomParser::parseElement(QDomElement& n, DomItem* item) {
   }
 }
 
-void DomParser::parseItem(DomItem* item, QDomElement& n, QDomDocument& doc) {
-  QDomElement element;
-  QString name = item->getName();
-  QString type = item->getType();
-  QString value = item->getValue();
-
-  if (name != "plist") {
-    QRegExp rp("Item\\s\\d+");  //正则表达式，排除Item
-
-    // item without key
-    if (rp.exactMatch(name)) {
-      // QDomElement container = doc.createElement(type);
-
-      if (type == "bool") value = value.trimmed();
-
-      if (type == "data") {
-        QString v = value.remove(QRegExp("\\s"));  // 16进制去除所有空格
-        value = QString::fromLatin1(HexStrToByte(v).toBase64());
-      }
-
-      // n.appendChild(container);
-      // element = container;
-
-    }  // else {
-
-    QDomElement key;
-    QDomText keyText;
-
-    if (name.trimmed().mid(0, 4) == "Item") {
-      keyText = doc.createTextNode(value);  //新增：解决数组无键值的情况
-    } else {
-      key = doc.createElement("key");
-      keyText = doc.createTextNode(name);
+void DomParser::parseItem(DomItem* item, QDomElement& n, QDomDocument& doc, bool isRoot) {
+  QDomElement element = n;
+  if (!isRoot) {
+    const QString type = item->getType();
+    QString value = item->getValue();
+    // Keys belong to dictionaries; array labels are display-only.
+    if (n.tagName() == "dict") {
+      QDomElement key = doc.createElement("key");
+      key.appendChild(doc.createTextNode(item->getName()));
+      n.appendChild(key);
     }
-
-    if (!key.isNull()) key.appendChild(keyText);
-    if (!n.isNull()) n.appendChild(key);
-
-    QDomElement val;
-    if (type == "bool")  //新增：bool类型
-    {
-      if (value.trimmed() == "true")
-        val = doc.createElement(QStringLiteral("true"));
-      if (value.trimmed() == "false")
-        val = doc.createElement(QStringLiteral("false"));
-    } else {
-      val = doc.createElement(type);
-    }
-
-    n.appendChild(val);
-
+    element = doc.createElement(type == "bool" ? value.trimmed() : type);
+    n.appendChild(element);
     if (type != "array" && type != "dict" && type != "bool") {
-      QDomText valText;
-
-      if (type == "data")  //新增：解决16进制字串转换问题
-      {
-        value = value.remove(QRegExp("\\s"));  // 16进制去除所有空格
-
-        if (name.trimmed().mid(0, 4) == "Item")
-          valText = doc.createTextNode(value);
-        else
-          valText = doc.createTextNode(
-              QString::fromLatin1(HexStrToByte(value).toBase64()));
-
-      } else {
-        valText = doc.createTextNode(value);
+      if (type == "data") {
+        value.remove(QRegularExpression("\\s"));
+        value = QString::fromLatin1(HexStrToByte(value).toBase64());
       }
-
-      // qDebug() << valText.nodeValue();
-
-      val.appendChild(valText);
+      element.appendChild(doc.createTextNode(value));
     }
-
-    element = val;
-    //}
-
-  } else
-    element = n;
-
-  // get children count
-  int c = item->childCount();
-
-  // iterate through children
-  for (int i = 0; i < c; ++i) {
-    DomItem* child = item->child(i);
-    parseItem(child, element, doc);
   }
+  for (int i = 0; i < item->childCount(); ++i)
+    parseItem(item->child(i), element, doc);
 }
 
 QString DomParser::ByteToHexStr(QByteArray ba) {

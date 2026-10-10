@@ -1,4 +1,9 @@
+#include <functional>
+#include <QRegularExpression>
 #include "mainwindow.h"
+#include "qtcompat.h"
+#include "plistio.h"
+#include <QTimer>
 
 #include <fstream>
 #include <iostream>
@@ -17,7 +22,11 @@ using namespace std;
 #include <QSettings>
 #include <QUrl>
 
+#ifdef XPLIST_SELF_USE
+QString CurVersion = "1.2.47-arm64.1";
+#else
 QString CurVersion = "1.2.47";
+#endif
 EditorTabsWidget* tabWidget;
 QUndoGroup* undoGroup;
 QString fileName;
@@ -32,15 +41,18 @@ int red = 0;
 int windowX = 0;
 int windowY = 0;
 QString iniFile =
-    QDir::homePath() + "/.config/" + appName + "/" + appName + ".ini";
+    xplistHomePath() + "/.config/" + appName + "/" + appName + ".ini";
 QSettings Reg(iniFile, QSettings::IniFormat);
 
+extern MainWindow* mw_one;
 extern bool loading;
 extern QString strRootType, tabStyleLight, treeStyleMacLight, treeStyleMacDark,
     treeStyleFind;
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent), ui(new Ui::MainWindow) {
+  // Session restoration creates editor tabs before the constructor returns.
+  mw_one = this;
   ui->setupUi(this);
   installEventFilter(this);
 
@@ -51,7 +63,7 @@ MainWindow::MainWindow(QWidget* parent)
   loading = true;
 
   QString qfile =
-      QDir::homePath() + "/.config/" + appName + "/" + appName + ".ini";
+      xplistHomePath() + "/.config/" + appName + "/" + appName + ".ini";
   QSettings Reg(qfile, QSettings::IniFormat);
 
   // 获取背景色
@@ -157,8 +169,14 @@ MainWindow::MainWindow(QWidget* parent)
           SLOT(replyFinished(QNetworkReply*)));
   ui->actionAutoUpdateCheck->setChecked(
       Reg.value("AutoUpdateCheck", 1).toBool());
+#ifdef XPLIST_SELF_USE
+  ui->actionAutoUpdateCheck->setChecked(false);
+  ui->actionAutoUpdateCheck->setEnabled(false);
+  ui->actionCheck_Update->setEnabled(false);
+#else
   blAutoCheckUpdate = true;
   CheckUpdate();
+#endif
 
   readINIProxy();
 
@@ -184,25 +202,23 @@ void MainWindow::init_iniData() {
 
   bool restore = Reg.value("restore", 1).toBool();
   ui->actionRestoreScene->setChecked(restore);
-  restore = true;
+  QStringList restoreFiles;
+  const int restoreIndex = Reg.value("index").toInt();
   if (restore) {
-    int count = Reg.value("count").toInt();
-
-    for (int i = 0; i < count; i++) {
-      QString file = Reg.value(QString::number(i) + "/file").toString();
-
-      QFileInfo fi(file);
-      if (fi.exists()) {
-        openPlist(file);
-      }
-    }
-
-    int index = Reg.value("index").toInt();
-    if (index >= 0 && index < tabWidget->tabBar()->count())
-      tabWidget->setCurrentIndex(index);
-    if (index >= tabWidget->tabBar()->count())
-      tabWidget->setCurrentIndex(tabWidget->tabBar()->count() - 1);
+    const int count = Reg.value("count").toInt();
+    for (int i = 0; i < count; ++i)
+      restoreFiles.append(Reg.value(QString::number(i) + "/file").toString());
   }
+  if (!restoreFiles.isEmpty()) QTimer::singleShot(0, this, [this, restoreFiles, restoreIndex] {
+    for (const QString& path : restoreFiles) {
+      bool alreadyOpen = false;
+      for (int i = 0; i < tabWidget->count(); ++i)
+        if (tabWidget->getTab(i)->getPath() == path) alreadyOpen = true;
+      if (!alreadyOpen && QFileInfo::exists(path)) openPlist(path);
+    }
+    if (restoreIndex >= 0 && restoreIndex < tabWidget->count())
+      tabWidget->setCurrentIndex(restoreIndex);
+  });
 
   bool drag = Reg.value("drag").toBool();
   if (drag) {
@@ -289,7 +305,7 @@ void MainWindow::initMenuToolsBar() {
 
   ui->actionAbout->setMenuRole(QAction::AboutRole);
   ui->mainToolBar->setIconSize(QSize(26, 26));
-  ui->mainToolBar->layout()->setMargin(1);
+  ui->mainToolBar->layout()->setContentsMargins(1, 1, 1, 1);
   ui->mainToolBar->layout()->setSpacing(1);
 
   ui->cboxFileType->setToolTip(tr("Select the file storage format"));
@@ -525,6 +541,26 @@ void MainWindow::openFiles(QStringList list) {
 }
 
 void MainWindow::openPlist(QString filePath) {
+  QByteArray macXml;
+  QDomDocument macDocument;
+  if (mac || osx1012) {
+    QString error;
+    if (!PlistIO::readXml(filePath, &macXml, &error)) {
+      QMessageBox::warning(this, tr("Open failed"), filePath + "\n" + error);
+      return;
+    }
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
+    const bool parsed = bool(macDocument.setContent(macXml, QDomDocument::ParseOption::PreserveSpacingOnlyNodes));
+#else
+    const bool parsed = macDocument.setContent(macXml);
+#endif
+    const auto root = macDocument.documentElement();
+    const QString rootType = root.firstChildElement().tagName();
+    if (!parsed || root.tagName() != "plist" || (rootType != "dict" && rootType != "array")) {
+      QMessageBox::warning(this, tr("Open failed"), tr("The plist root must be a dictionary or array."));
+      return;
+    }
+  }
   tabWidget->setHidden(false);
   ui->listFind->clear();  // 否则会导致App崩溃
   ui->editFind->setFocus();
@@ -535,14 +571,15 @@ void MainWindow::openPlist(QString filePath) {
   string baseName;
   QString path;
   QDomDocument document;
-  QString strConfigDir = QDir::homePath() + "/.config/" + appName;
-  QString fn = QDir::homePath() + "/.config/" + appName + "/temp.plist";
+  QString strConfigDir = xplistHomePath() + "/.config/" + appName;
+  QString fn = xplistHomePath() + "/.config/" + appName + "/temp.plist";
 
   if (filePath == fn) {
     QFile file(filePath);
 
     if (file.open(QIODevice::ReadOnly)) {
-      if (document.setContent(&file)) {
+      if (mac || osx1012) document = macDocument;
+      if ((mac || osx1012) || document.setContent(&file)) {
         DomModel* model = DomParser::fromDom(document);
 
         tabWidget->createTab(model, filePath);
@@ -610,12 +647,7 @@ void MainWindow::openPlist(QString filePath) {
         QFile::remove(strSource);
       }
 
-      if (mac || osx1012) {
-        QProcess::execute("plutil", QStringList()
-                                        << "-convert"
-                                        << "xml1" << filePath << "-o"
-                                        << strConfigDir + "/_temp.plist");
-      }
+
 
       ui->cboxFileType->setCurrentIndex(1);
     } else
@@ -641,27 +673,16 @@ void MainWindow::openPlist(QString filePath) {
     } catch (...) {
     }
 
-    QFile file(strLoad);
-    if (file.open(QIODevice::ReadOnly)) {
-      document.setContent(&file);
+    if (mac || osx1012) {
+      document = macDocument;
+    } else {
+      QFile file(strLoad);
+      if (file.open(QIODevice::ReadOnly)) document.setContent(&file);
     }
-    file.close();
 
     closeOpenedFile(filePath);
 
-    // 确定dict或array
-    QTextEdit* txtEdit = new QTextEdit;
-    txtEdit->setPlainText(readText(strLoad));
-    for (int i = 0; i < txtEdit->document()->lineCount(); i++) {
-      if (getTextEditLineText(txtEdit, i) == "<dict>") {
-        strRootType = "dict";
-        break;
-      }
-      if (getTextEditLineText(txtEdit, i) == "<array>") {
-        strRootType = "array";
-        break;
-      }
-    }
+    strRootType = document.documentElement().firstChildElement().tagName();
 
     DomModel* model;
     model = DomParser::fromDom(document);
@@ -676,7 +697,7 @@ void MainWindow::openPlist(QString filePath) {
     tabWidget->createTab(model, filePath);
 
     QString tempText =
-        QDir::homePath() + "/.config/" + appName + "/tempText.plist";
+        xplistHomePath() + "/.config/" + appName + "/tempText.plist";
     if (filePath != fn && filePath != tempText) {
       QSettings settings;
       QFileInfo fInfo(filePath);
@@ -704,7 +725,7 @@ void MainWindow::openPlist(QString filePath) {
                                          fi.filePath());
 
     loadPlistText(filePath);
-    if (binPlistFile) QFile::remove(strLoad);
+    if (binPlistFile && !(mac || osx1012)) QFile::remove(strLoad);
   }
 
   setOrgMD5(filePath);
@@ -733,7 +754,7 @@ QString MainWindow::readText(QString textFile) {
 
     } else {
       QTextStream in(&file);
-      in.setCodec("UTF-8");
+      setUtf8(in);
       QString text = in.readAll();
       return text;
     }
@@ -755,23 +776,7 @@ QDomDocument MainWindow::readXMLPlist(QDomDocument document, QString filePath) {
 
 bool MainWindow::getBinPlist(QString filePath) {
   QFile file(filePath);
-  if (!file.open(QFile::ReadOnly | QFile::Text)) {
-    QMessageBox::warning(
-        this, tr("Application"),
-        tr("Cannot read file %1:\n%2.")
-            .arg(QDir::toNativeSeparators(fileName), file.errorString()));
-
-  } else {
-    QTextStream in(&file);
-    in.setCodec("UTF-8");
-    QString text = in.readAll().trimmed();
-    if (text.mid(0, 8) == "bplist00")
-      return true;
-    else
-      return false;
-  }
-
-  return false;
+  return file.open(QIODevice::ReadOnly) && file.read(8) == "bplist00";
 }
 
 void MainWindow::closeOpenedFile(QString file) {
@@ -829,8 +834,11 @@ void MainWindow::on_TabCloseRequest(int i) {
         return;
 
       case QMessageBox::Save:
+        if (!actionSave()) {
+          close_flag = 0;
+          return;
+        }
         close_flag = 1;
-        actionSave();
         break;
 
       case QMessageBox::Discard:
@@ -874,12 +882,37 @@ void MainWindow::setTitle(QString title) {
   if (title.length() > 60) title = "..." + title.mid(title.length() - 60, 60);
 }
 
-void MainWindow::savePlist(QString filePath) {
+bool MainWindow::savePlist(QString filePath) {
+  if (!tabWidget->hasTabs()) return false;
+  if (mac || osx1012) {
+    EditorTab* tab = tabWidget->getCurentTab();
+    const bool binary = ui->cboxFileType->currentIndex() == 1;
+    QString error;
+    const QDomDocument doc = DomParser::toDom(tab->getModel());
+    removeWatchFiles();
+    if (!PlistIO::save(filePath, doc.toByteArray(4), binary, &error)) {
+      addWatchFiles();
+      QMessageBox::warning(this, tr("Save failed"), filePath + "\n" + error);
+      return false;
+    }
+    tab->setPath(filePath);
+    tabWidget->setTabText(tabWidget->indexOf(tab),
+                         (binary ? "[BIN] " : "") + QFileInfo(filePath).baseName());
+    tabWidget->tabBar()->setTabToolTip(tabWidget->currentIndex(), filePath);
+    tab->getUndoStack()->setClean();
+    Save = true;
+    loadPlistText(filePath);
+    goPlistText();
+    setOrgMD5(filePath);
+    addWatchFiles();
+    setModifyMarker();
+    return true;
+  }
   removeWatchFiles();
   if (tabWidget->hasTabs()) {
     Save = true;
 
-    QString fileTemp = QDir::homePath() + "/.config/" + appName + "/temp.plist";
+    QString fileTemp = xplistHomePath() + "/.config/" + appName + "/temp.plist";
 
     EditorTab* tab = tabWidget->getCurentTab();
 
@@ -890,7 +923,7 @@ void MainWindow::savePlist(QString filePath) {
       QFile file(filePath);
       file.open(QIODevice::WriteOnly);
       QTextStream out(&file);
-      out.setCodec("UTF-8");
+      setUtf8(out);
       doc.save(out, 4, QDomNode::EncodingFromDocument);
       file.close();
 
@@ -934,7 +967,7 @@ void MainWindow::savePlist(QString filePath) {
           QFile file(filePath);
           file.open(QIODevice::WriteOnly);
           QTextStream out(&file);
-          out.setCodec("UTF-8");
+          setUtf8(out);
           doc.save(out, 4, QDomNode::EncodingFromDocument);
           file.close();
 
@@ -948,13 +981,13 @@ void MainWindow::savePlist(QString filePath) {
       if (ui->cboxFileType->currentIndex() == 1) {
         if (linuxOS) {
           // Plist::writePlistBinary(baseName.c_str(), dict);
-          QString strConfigDir = QDir::homePath() + "/.config/" + appName;
+          QString strConfigDir = xplistHomePath() + "/.config/" + appName;
           QString strSource = strConfigDir + "/_util.plist";
 
           QFile file(strSource);
           file.open(QIODevice::WriteOnly);
           QTextStream out(&file);
-          out.setCodec("UTF-8");
+          setUtf8(out);
           doc.save(out, 4, QDomNode::EncodingFromDocument);
           file.close();
 
@@ -984,13 +1017,13 @@ void MainWindow::savePlist(QString filePath) {
         }
 
         if (win) {
-          QString strConfigDir = QDir::homePath() + "/.config/" + appName;
+          QString strConfigDir = xplistHomePath() + "/.config/" + appName;
           QString strSource = strConfigDir + "/_util.plist";
 
           QFile file(strSource);
           file.open(QIODevice::WriteOnly);
           QTextStream out(&file);
-          out.setCodec("UTF-8");
+          setUtf8(out);
           doc.save(out, 4, QDomNode::EncodingFromDocument);
           file.close();
 
@@ -1020,16 +1053,6 @@ void MainWindow::savePlist(QString filePath) {
           }
         }
 
-        if (mac || osx1012) {
-          QFile file(filePath);
-          file.open(QIODevice::WriteOnly);
-          QTextStream out(&file);
-          out.setCodec("UTF-8");
-          doc.save(out, 4, QDomNode::EncodingFromDocument);
-          file.close();
-          QProcess::execute("plutil", QStringList() << "-convert"
-                                                    << "binary1" << filePath);
-        }
         tabWidget->setTabText(index, "[BIN] " + QFileInfo(name).baseName());
       }
 
@@ -1047,20 +1070,22 @@ void MainWindow::savePlist(QString filePath) {
   setOrgMD5(filePath);
   addWatchFiles();
   setModifyMarker();
+  return true;
 }
 
-void MainWindow::actionSave() {
+bool MainWindow::actionSave() {
   if (tabWidget->hasTabs()) {
     EditorTab* tab = tabWidget->getCurentTab();
     QString path = tab->getPath();
     if (!path.isEmpty())
-      savePlist(path);
+      return savePlist(path);
     else
-      actionSaveAs();
+      return actionSaveAs();
   }
+  return false;
 }
 
-void MainWindow::actionSaveAs() {
+bool MainWindow::actionSaveAs() {
   if (tabWidget->hasTabs()) {
     QString str = QFileDialog::getSaveFileName(this, tr("Save as"), "",
                                                tr("Property list (*.plist)"));
@@ -1068,7 +1093,7 @@ void MainWindow::actionSaveAs() {
     if (!str.isEmpty()) {
       closeOpenedFile(str);
 
-      savePlist(str);
+      if (!savePlist(str)) return false;
 
       if (win || linuxOS)
         setTitle(ver + "[*] " + tabWidget->getCurentTab()->getPath());
@@ -1081,8 +1106,10 @@ void MainWindow::actionSaveAs() {
       // qDebug() << settings.fileName(); //最近打开的文件所保存的位置
       m_recentFiles->setMostRecentFile(str);
       initRecentFilesForToolBar();
+      return true;
     }
   }
+  return false;
 }
 
 void MainWindow::actionAdd_activated() {
@@ -1125,7 +1152,7 @@ void MainWindow::actionRemove_activated() {
     QModelIndexList selectedsList = selections->selectedRows();
 
     std::sort(selectedsList.begin(), selectedsList.end(),
-              qGreater<QModelIndex>());  // so that rows are removed from
+              std::greater<QModelIndex>());  // so that rows are removed from
                                          // highest index
 
     foreach (QModelIndex index, selectedsList) {
@@ -1947,6 +1974,9 @@ void MainWindow::on_actionNewChild() {
 }
 
 void MainWindow::CheckUpdate() {
+#ifdef XPLIST_SELF_USE
+  return;
+#endif
   QNetworkRequest quest;
   quest.setUrl(QUrl("https://api.github.com/repos/ic005k/" + appName +
                     "/releases/latest"));
@@ -2125,7 +2155,7 @@ void MainWindow::on_copyBW() {
 
     actionRemove_activated();
 
-    QString fn = QDir::homePath() + "/.config/" + appName + "/temp.plist";
+    QString fn = xplistHomePath() + "/.config/" + appName + "/temp.plist";
     savePlist(fn);
 
     tabWidget->getCurentTab()->setWindowModified(false);
@@ -2143,7 +2173,7 @@ void MainWindow::on_pasteBW() {
     this->repaint();
 
     int ci = tabWidget->currentIndex();
-    QString fn = QDir::homePath() + "/.config/" + appName + "/temp.plist";
+    QString fn = xplistHomePath() + "/.config/" + appName + "/temp.plist";
     QFileInfo fi(fn);
     if (!fi.exists()) return;
 
@@ -2193,7 +2223,7 @@ void MainWindow::loadPlistText(QString textFile) {
 
     } else {
       QTextStream in(&file);
-      in.setCodec("UTF-8");
+      setUtf8(in);
       QString text = in.readAll();
       plistTextEditor->setPlainText(text);
     }
@@ -2566,7 +2596,7 @@ void MainWindow::on_actionSave_as_triggered() { actionSaveAs(); }
 
 void MainWindow::initFindReplace() {
   //初始化查找与替换界面
-  ui->frameFind->layout()->setMargin(1);
+  ui->frameFind->layout()->setContentsMargins(1, 1, 1, 1);
   ui->frameFind->close();
   ui->btnPrevious->setEnabled(false);
   ui->btnNext->setEnabled(false);
@@ -3296,7 +3326,7 @@ void MainWindow::TextEditToFile(QTextEdit* txtEdit, QString fileName) {
   bool ok = file->open(QIODevice::WriteOnly);
   if (ok) {
     QTextStream out(file);
-    out.setCodec("UTF-8");
+    setUtf8(out);
     out << txtEdit->toPlainText();
     file->close();
     delete file;
@@ -3339,7 +3369,7 @@ void MainWindow::on_btnUpdateHex_clicked() {
   if (!ui->editHex->isModified()) return;
 
   QString str = ui->editHex->text();
-  QString strHex = str.remove(QRegExp("\\s")).toUpper();
+  QString strHex = str.remove(QRegularExpression("\\s")).toUpper();
 
   EditorTab* tab = tabWidget->getCurentTab();
   QModelIndex index = tab->currentIndex();
@@ -3569,60 +3599,6 @@ void ClickableLabel::mousePressEvent(QMouseEvent* event) {
   emit clicked();
 }
 
-#ifdef Q_OS_MAC
-void MainWindow::init_MacVerInfo(QString ver) {
-  QString str1 = qApp->applicationDirPath();
-  QString infoFile = str1.replace("MacOS", "Info.plist");
-
-  QTextEdit* edit = new QTextEdit;
-  edit->setPlainText(loadText(infoFile));
-
-  bool write = false;
-
-  for (int i = 0; i < edit->document()->lineCount(); i++) {
-    QString lineTxt = getTextEditLineText(edit, i).trimmed();
-
-#if (QT_VERSION >= QT_VERSION_CHECK(5, 15, 0))
-    if (lineTxt == "<key>CFBundleShortVersionString</key>" ||
-        lineTxt == "<key>CFBundleVersion</key>") {
-      QString nextTxt = getTextEditLineText(edit, i + 1).trimmed();
-      if (nextTxt != "<string>" + ver + "</string>") {
-        QTextBlock block = edit->document()->findBlockByNumber(i + 1);
-        QTextCursor cursor(block);
-        block = block.next();
-        cursor.select(QTextCursor::BlockUnderCursor);
-        cursor.removeSelectedText();
-        cursor.insertText("\n        <string>" + ver + "</string>");
-
-        write = true;
-      }
-    }
-#endif
-
-#if (QT_VERSION < QT_VERSION_CHECK(5, 15, 0))
-    if (lineTxt == "<key>CFBundleGetInfoString</key>") {
-      QString nextTxt = getTextEditLineText(edit, i + 1).trimmed();
-      if (nextTxt != "<string>" + ver + "</string>") {
-        QTextBlock block = edit->document()->findBlockByNumber(i + 1);
-        QTextCursor cursor(block);
-        block = block.next();
-        cursor.select(QTextCursor::BlockUnderCursor);
-        cursor.removeSelectedText();
-        cursor.insertText("\n        <string>" + ver + "</string>");
-
-        write = true;
-      }
-    }
-
-#endif
-  }
-
-  if (write) {
-    TextEditToFile(edit, infoFile);
-  }
-}
-#endif
-
 QString MainWindow::loadText(QString textFile) {
   QFileInfo fi(textFile);
   if (fi.exists()) {
@@ -3634,7 +3610,7 @@ QString MainWindow::loadText(QString textFile) {
 
     } else {
       QTextStream in(&file);
-      in.setCodec("UTF-8");
+      setUtf8(in);
       QString text = in.readAll();
       return text;
     }

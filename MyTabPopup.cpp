@@ -15,7 +15,7 @@ void MyTabPopup::setContentWidget(QWidget* page)
         return;
     content = page;
     QVBoxLayout* layout = new QVBoxLayout(this);
-    layout->setMargin(0);
+    layout->setContentsMargins(0, 0, 0, 0);
     layout->addWidget(page);
 }
 

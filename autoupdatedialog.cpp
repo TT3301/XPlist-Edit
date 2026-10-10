@@ -17,7 +17,9 @@ AutoUpdateDialog::AutoUpdateDialog(QWidget* parent)
   ui->progressBar->setTextVisible(false);
   Init();
   tempDir = QDir::homePath() + "/tempplist/";
-  mw_one->deleteDirfile(tempDir);
+#ifndef XPLIST_SELF_USE
+  QDir(tempDir).removeRecursively();
+#endif
   ui->label->setVisible(false);
 }
 
@@ -95,6 +97,9 @@ void AutoUpdateDialog::on_btnStartUpdate_clicked() {
 }
 
 void AutoUpdateDialog::startUpdate() {
+#ifdef XPLIST_SELF_USE
+  return;
+#endif
   ui->btnStartUpdate->setEnabled(false);
   this->repaint();
 
@@ -182,6 +187,10 @@ void AutoUpdateDialog::startUpdate() {
 }
 
 void AutoUpdateDialog::startDownload(bool Database) {
+#ifdef XPLIST_SELF_USE
+  Q_UNUSED(Database);
+  return;
+#endif
   setWindowTitle("");
   ui->label->setVisible(false);
   ui->btnStartUpdate->setEnabled(false);
@@ -209,7 +218,12 @@ void AutoUpdateDialog::startDownload(bool Database) {
 
   // github redirects the request, so this attribute must be set to true,
   // otherwise returns nothing from qt5.6
+  #if QT_VERSION >= QT_VERSION_CHECK(5, 9, 0)
+  request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                       QNetworkRequest::NoLessSafeRedirectPolicy);
+#else
   request.setAttribute(QNetworkRequest::FollowRedirectsAttribute, true);
+#endif
 
   reply = manager->get(request);  //发送请求
   connect(reply, &QNetworkReply::readyRead, this,
@@ -241,7 +255,7 @@ void AutoUpdateDialog::startDownload(bool Database) {
 
 void AutoUpdateDialog::closeEvent(QCloseEvent* event) {
   Q_UNUSED(event);
-  reply->close();
+  if (reply) reply->close();
 }
 
 QString AutoUpdateDialog::GetFileSize(qint64 size) {

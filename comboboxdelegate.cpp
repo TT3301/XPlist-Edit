@@ -1,3 +1,4 @@
+#include <QRegularExpression>
 #include "comboboxdelegate.h"
 
 #include <editortabswidget.h>
@@ -105,7 +106,7 @@ void ComboBoxDelegate::setModelData(QWidget* editor, QAbstractItemModel* model,
 
       if (val == "string") {
         if (oldValue == "data") {
-          NewValue = CurrentValue.remove(QRegExp("\\s"));  // 16进制去除所有空格
+          NewValue = CurrentValue.remove(QRegularExpression("\\s"));  // 16进制去除所有空格
           NewValue = HexStrToByte(CurrentValue);
 
         } else if (oldValue == "bool")

@@ -1,3 +1,5 @@
+#include <functional>
+#include <QRegularExpression>
 #include "editortab.h"
 
 #include "mainwindow.h"
@@ -415,7 +417,7 @@ void EditorTab::treeView_clicked(const QModelIndex& index) {
 
   if (item->getType() == "data") {
     QString str =
-        item->getValue().remove(QRegExp("\\s"));  // 16进制去除所有空格
+        item->getValue().remove(QRegularExpression("\\s"));  // 16进制去除所有空格
     mw_one->ui->lblBytes->setText(QString::number(str.count() / 2) + " " +
                                   tr("bytes"));
     mw_one->ui->editHex->setText(str);
@@ -541,7 +543,7 @@ void EditorTab::on_copyAction() {
 
   copy_item.clear();
   std::sort(selectedsList.begin(), selectedsList.end(),
-            qGreater<QModelIndex>());
+            std::greater<QModelIndex>());
   foreach (QModelIndex index, selectedsList) {
     item = model->itemForIndex(index);
     if (item->getName() != "plist") {
@@ -558,7 +560,7 @@ void EditorTab::on_cutAction() {
 
   copy_item.clear();
   std::sort(selectedsList.begin(), selectedsList.end(),
-            qGreater<QModelIndex>());
+            std::greater<QModelIndex>());
   foreach (QModelIndex index, selectedsList) {
     if (index.parent().data().toString() != "")  //最顶层不允许剪切
     {

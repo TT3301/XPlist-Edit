@@ -58,11 +58,11 @@ void FileSystemWatcher::directoryUpdated(const QString& path) {
   QStringList newEntryList = dir.entryList(
       QDir::NoDotAndDotDot | QDir::AllDirs | QDir::Files, QDir::DirsFirst);
 
-  QSet<QString> newDirSet = QSet<QString>::fromList(newEntryList);  //旧
+  QSet<QString> newDirSet = QSet<QString>(newEntryList.cbegin(), newEntryList.cend());  //旧
   // QSet<QString> newDirSet = QSet<QString>(newEntryList.begin(),
   // newEntryList.end());//新
 
-  QSet<QString> currentDirSet = QSet<QString>::fromList(currEntryList);  //旧
+  QSet<QString> currentDirSet = QSet<QString>(currEntryList.cbegin(), currEntryList.cend());  //旧
   // QSet<QString> currentDirSet = QSet<QString>(currEntryList.begin(),
   // currEntryList.end());//新
 

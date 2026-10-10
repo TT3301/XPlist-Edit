@@ -8,7 +8,13 @@ QT       += network
 
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 
-CONFIG += c++11
+CONFIG += c++17
+INCLUDEPATH += $$PWD
+contains(CONFIG, arm64_self_use) {
+    DEFINES += XPLIST_SELF_USE
+    QMAKE_APPLE_DEVICE_ARCHS = arm64
+    QMAKE_INFO_PLIST = $$PWD/Info.plist
+}
 
 ICON = my.icns
 RC_FILE += myapp.rc
@@ -43,7 +49,8 @@ SOURCES += main.cpp\
     myhighlighter.cpp \
     mytreeview.cpp \
     pugixml.cpp \
-    recentfiles.cpp
+    recentfiles.cpp \
+    plistio.cpp
 
 HEADERS  += mainwindow.h \
     MyTabBar.h \
@@ -69,7 +76,9 @@ HEADERS  += mainwindow.h \
     mytreeview.h \
     pugiconfig.hpp \
     pugixml.hpp \
-    recentfiles.h
+    recentfiles.h \
+    plistio.h \
+    qtcompat.h
 
 FORMS    += mainwindow.ui \
     autoupdatedialog.ui \
@@ -95,8 +104,8 @@ mac {
 
 
 CONFIG(debug,debug|release) {
-    DESTDIR = $$absolute_path($${_PRO_FILE_PWD_}/bin/debug)
+    isEmpty(DESTDIR): DESTDIR = $$absolute_path($${_PRO_FILE_PWD_}/bin/debug)
 } else {
-    DESTDIR = $$absolute_path($${_PRO_FILE_PWD_}/bin/release)
+    isEmpty(DESTDIR): DESTDIR = $$absolute_path($${_PRO_FILE_PWD_}/bin/release)
 }
 

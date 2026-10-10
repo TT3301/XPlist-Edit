@@ -13,3 +13,5 @@
 ---
 
 API: https://api.github.com/repos/ic005k/Xplist/releases/latest
+
+本地 Apple Silicon 自用适配的构建、安装和验证说明见 [README-arm64.md](README-arm64.md)。
