@@ -13,7 +13,7 @@ bool convert(const QString& source, const QString& target,
     if (!process.waitForStarted(5000) || !process.waitForFinished(30000)) {
         *error = process.errorString();
         process.kill();
-        process.waitForFinished();
+        process.waitForFinished(5000);
         return false;
     }
     if (process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0) {

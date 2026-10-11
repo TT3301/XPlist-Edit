@@ -181,9 +181,9 @@ void DomParser::parseElement(QDomElement& n, DomItem* item) {
           element = element.nextSiblingElement();
         }
       } else {
-        qWarning("No value matching the key");
-
-        break;
+        qWarning("Skipping unrecognized element: %s", qPrintable(tagName));
+        element = element.nextSiblingElement();
+        continue;
       }
     }
   }
@@ -221,18 +221,5 @@ QString DomParser::ByteToHexStr(QByteArray ba) {
 }
 
 QByteArray DomParser::HexStrToByte(QString value) {
-  QByteArray ba;
-  QVector<QString> byte;
-  int len = value.length();
-  int k = 0;
-  ba.resize(len / 2);
-  for (int i = 0; i < len / 2; i++) {
-    // qDebug() << i << k;
-
-    byte.push_back(value.mid(k, 2));
-    ba[k / 2] = byte[k / 2].toUInt(nullptr, 16);
-    k = k + 2;
-  }
-
-  return ba;
+  return QByteArray::fromHex(value.toUtf8());
 }

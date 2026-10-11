@@ -165,8 +165,8 @@ MainWindow::MainWindow(QWidget* parent)
   init_iniData();
 
   manager = new QNetworkAccessManager(this);
-  connect(manager, SIGNAL(finished(QNetworkReply*)), this,
-          SLOT(replyFinished(QNetworkReply*)));
+  connect(manager, &QNetworkAccessManager::finished, this,
+          &MainWindow::replyFinished);
   ui->actionAutoUpdateCheck->setChecked(
       Reg.value("AutoUpdateCheck", 1).toBool());
 #ifdef XPLIST_SELF_USE
@@ -327,23 +327,23 @@ void MainWindow::initMenuToolsBar() {
   ui->menuEdit->addAction(actionUndo);
   ui->menuEdit->addAction(actionRedo);
 
-  connect(tabWidget, SIGNAL(currentChanged(int)), this,
-          SLOT(onTabWidget_currentChanged(int)));
+  connect(tabWidget, &EditorTabsWidget::currentChanged, this,
+          &MainWindow::onTabWidget_currentChanged);
 
-  connect(undoGroup, SIGNAL(cleanChanged(bool)), this,
-          SLOT(onCleanChanged(bool)));
+  connect(undoGroup, &QUndoGroup::cleanChanged, this,
+          &MainWindow::onCleanChanged);
 
   // File
-  connect(ui->actionClose, SIGNAL(triggered()), this,
-          SLOT(actionClose_activated()));
-  connect(ui->actionClose_all, SIGNAL(triggered()), this,
-          SLOT(actionClose_all_activated()));
+  connect(ui->actionClose, &QAction::triggered, this,
+          &MainWindow::actionClose_activated);
+  connect(ui->actionClose_all, &QAction::triggered, this,
+          &MainWindow::actionClose_all_activated);
 
-  connect(tabWidget, SIGNAL(tabCloseRequested(int)), this,
-          SLOT(on_TabCloseRequest(int)));
+  connect(tabWidget, &EditorTabsWidget::tabCloseRequested, this,
+          &MainWindow::on_TabCloseRequest);
 
-  connect(ui->actionNew_Window, SIGNAL(triggered()), this,
-          SLOT(on_NewWindow()));
+  connect(ui->actionNew_Window, &QAction::triggered, this,
+          &MainWindow::on_NewWindow);
   ui->actionNew_Window->setShortcut(tr("ctrl+alt+n"));
   if (mac || osx1012) ui->actionNew_Window->setIconVisibleInMenu(false);
 
@@ -352,10 +352,10 @@ void MainWindow::initMenuToolsBar() {
 
   // Edit
   ui->actionCopy->setShortcuts(QKeySequence::Copy);
-  connect(ui->actionCopy, SIGNAL(triggered()), this, SLOT(on_copyAction()));
+  connect(ui->actionCopy, &QAction::triggered, this, &MainWindow::on_copyAction);
 
   ui->actionPaste->setShortcuts(QKeySequence::Paste);
-  connect(ui->actionPaste, SIGNAL(triggered()), this, SLOT(on_pasteAction()));
+  connect(ui->actionPaste, &QAction::triggered, this, &MainWindow::on_pasteAction);
 
   ui->actionPaste_as_child->setShortcut(tr("shift+ctrl+v"));
 
@@ -424,8 +424,8 @@ void MainWindow::initMenuToolsBar() {
   // ui->mainToolBar->addAction(ui->actionExpand_all);
   ui->actionExpand_all->setIcon(QIcon(":/new/toolbar/res/exp.svg"));
 
-  connect(ui->actionExpand_all, SIGNAL(triggered()), this,
-          SLOT(actionExpand_all_activated()));
+  connect(ui->actionExpand_all, &QAction::triggered, this,
+          &MainWindow::actionExpand_all_activated);
 
   // ui->mainToolBar->addSeparator();
   //条目上移
@@ -921,16 +921,19 @@ bool MainWindow::savePlist(QString filePath) {
 
     if (filePath == fileTemp) {
       QFile file(filePath);
-      file.open(QIODevice::WriteOnly);
+      if (!file.open(QIODevice::WriteOnly)) {
+        addWatchFiles();
+        return false;
+      }
       QTextStream out(&file);
       setUtf8(out);
       doc.save(out, 4, QDomNode::EncodingFromDocument);
       file.close();
 
-    } else {  // 始终生成一个空文件，供另存使用
-      QFile file(filePath);
-      file.open(QIODevice::WriteOnly);
-      file.close();
+    } else {
+      // Target will be written by the Plist library below; do not
+      // pre-create an empty file here to avoid destroying the original
+      // if the subsequent write fails.
     }
 
     QFileInfo fi(filePath);
@@ -1002,7 +1005,7 @@ bool MainWindow::savePlist(QString filePath) {
 
           QElapsedTimer t;
           t.start();
-          while (!QFile::exists(strTarget)) {
+          while (!QFile::exists(strTarget) && t.elapsed() < 10000) {
             QCoreApplication::processEvents();
           }
 
@@ -1039,7 +1042,7 @@ bool MainWindow::savePlist(QString filePath) {
 
           QElapsedTimer t;
           t.start();
-          while (!QFile::exists(strTarget)) {
+          while (!QFile::exists(strTarget) && t.elapsed() < 10000) {
             QCoreApplication::processEvents();
           }
 
@@ -1155,7 +1158,7 @@ void MainWindow::actionRemove_activated() {
               std::greater<QModelIndex>());  // so that rows are removed from
                                          // highest index
 
-    foreach (QModelIndex index, selectedsList) {
+    for (const QModelIndex& index : selectedsList) {
       if (index.isValid()) {
         if (model->itemNotPlist(index)) {
           QUndoCommand* removeCommand = new RemoveCommand(model, index);
@@ -1542,20 +1545,14 @@ void MainWindow::closeEvent(QCloseEvent* event) {
     for (int i = 0; i < count; i++) {
       tabWidget->setCurrentIndex(0);
       emit tabWidget->tabCloseRequested(0);
-      if (close_flag == 0)  // 0取消、1保存、2放弃标志，为后面新增功能预留
-      {
+      if (close_flag == 0) {
+        // User chose Cancel — abort close
         event->ignore();
         close_flag = -1;
-        break;  //如果第一个标签页选择取消，则直接终止关闭
+        return;
       }
-      if (close_flag == 1) {
-        event->ignore();
-        close_flag = -1;
-      }
-      if (close_flag == 2) {
-        event->ignore();
-        close_flag = -1;
-      }
+      // flag 1 (saved) or 2 (discarded): tab was closed, continue loop
+      close_flag = -1;
     }
 
     if (tabWidget->count() == 0) event->accept();
@@ -1788,14 +1785,14 @@ void MainWindow::goPlistText() {
       val = tab->HexStrToByte(val).toBase64().trimmed();
     }
 
-    QTextEdit* editTemp = new QTextEdit;
-    editTemp->setPlainText(plistTextEditor->document()->toPlainText());
+    QTextEdit editTemp;
+    editTemp.setPlainText(plistTextEditor->document()->toPlainText());
 
-    for (int i = 0; i < editTemp->document()->lineCount(); i++) {
-      QTextBlock block = editTemp->document()->findBlockByNumber(i);
-      editTemp->setTextCursor(QTextCursor(block));
+    for (int i = 0; i < editTemp.document()->lineCount(); i++) {
+      QTextBlock block = editTemp.document()->findBlockByNumber(i);
+      editTemp.setTextCursor(QTextCursor(block));
       QString lineText =
-          editTemp->document()->findBlockByNumber(i).text().trimmed();
+          editTemp.document()->findBlockByNumber(i).text().trimmed();
 
       if (name.mid(0, 4) == "Item") {
         if (getPlistTextValue(lineText) == val) {
@@ -1815,7 +1812,7 @@ void MainWindow::goPlistText() {
         if (datatype == "bool") {
           if (index.column() == 0 || index.column() == 1) {
             if (getPlistTextValue(lineText) == name) {
-              QString strNext = editTemp->document()
+              QString strNext = editTemp.document()
                                     ->findBlockByNumber(i + 1)
                                     .text()
                                     .trimmed();
@@ -1833,7 +1830,7 @@ void MainWindow::goPlistText() {
           if (index.column() == 2) {
             if (lineText.mid(1, lineText.length() - 4) == val ||
                 lineText.mid(1, lineText.length() - 3) == val) {
-              QString strPrevious = editTemp->document()
+              QString strPrevious = editTemp.document()
                                         ->findBlockByNumber(i - 1)
                                         .text()
                                         .trimmed();
@@ -1851,7 +1848,7 @@ void MainWindow::goPlistText() {
             datatype == "data" || datatype == "date" || datatype == "real") {
           if (index.column() == 0 || index.column() == 1) {
             if (getPlistTextValue(lineText) == name) {
-              QString strNext = editTemp->document()
+              QString strNext = editTemp.document()
                                     ->findBlockByNumber(i + 1)
                                     .text()
                                     .trimmed();
@@ -1865,7 +1862,7 @@ void MainWindow::goPlistText() {
 
           if (index.column() == 2) {
             if (getPlistTextValue(lineText) == val) {
-              QString strPrevious = editTemp->document()
+              QString strPrevious = editTemp.document()
                                         ->findBlockByNumber(i - 1)
                                         .text()
                                         .trimmed();
@@ -1902,9 +1899,8 @@ void MainWindow::setBarMarkers(int line) {
   extraSelection.append(selection);
   plistTextEditor->setExtraSelections(extraSelection);
 
-  QScrollBar* vsBar = new QScrollBar;
-  vsBar = plistTextEditor->verticalScrollBar();
-  int vPos = plistTextEditor->verticalScrollBar()->sliderPosition();
+  QScrollBar* vsBar = plistTextEditor->verticalScrollBar();
+  int vPos = vsBar->sliderPosition();
   // if (vPos > plistTextEditor->height() / 3)
   vsBar->setSliderPosition(vPos + 0);  // plistTextEditor->height() / 2);
 }
@@ -3511,14 +3507,14 @@ void MainWindow::on_btnSave_clicked() { actionSave(); }
 void MainWindow::mousePressEvent(QMouseEvent* e) {
   if (e->button() == Qt::LeftButton) {
     isDrag = true;
-    m_position = e->globalPos() - this->pos();
+    m_position = e->globalPosition().toPoint() - this->pos();
     e->accept();
   }
 }
 
 void MainWindow::mouseMoveEvent(QMouseEvent* e) {
   if (isDrag & (e->buttons() & Qt::LeftButton)) {
-    move(e->globalPos() - m_position);
+    move(e->globalPosition().toPoint() - m_position);
     e->accept();
   }
 }
@@ -3553,6 +3549,7 @@ bool MainWindow::eventFilter(QObject* o, QEvent* e) {
 }
 
 void MainWindow::init_UIStyle() {
+  delete myHL;
   myHL = new MyHighLighter(plistTextEditor->document());
   myHL->rehighlight();
 

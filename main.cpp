@@ -20,8 +20,7 @@ int main(int argc, char* argv[]) {
   }
 #endif
 
-  // QApplication a(argc, argv);
-  MyApplication* a = new MyApplication(argc, argv);
+  MyApplication a(argc, argv);
   QCoreApplication::setApplicationVersion(CurVersion);
 
   static QTranslator translator;  //注意：使translator一直生效
@@ -73,13 +72,13 @@ int main(int argc, char* argv[]) {
 #endif
 
   if (!fileName.isEmpty()) {
-    a->new_win();
+    a.new_win();
   } else {
     mw_one = new MainWindow();
 
     mw_one->show();
   }
   f.setPixelSize(12);
-  a->setFont(f);
-  return a->exec();
+  a.setFont(f);
+  return a.exec();
 }

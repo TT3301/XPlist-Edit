@@ -342,7 +342,7 @@ class MainWindow : public QMainWindow {
   void onTabBarClicked(int index);
 
  private:
-  bool isDrag;
+  bool isDrag = false;
   QPoint m_position;
   bool useQtWriteXML = true;
   RecentFiles* m_recentFiles;
@@ -376,7 +376,7 @@ class MainWindow : public QMainWindow {
   void setBarMarkers(int line);
   QString getPlistTextValue(QString str);
 
-  MyHighLighter* myHL;
+  MyHighLighter* myHL = nullptr;
 
   bool oneReplace = false;
 
